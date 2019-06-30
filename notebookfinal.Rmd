@@ -1,0 +1,170 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(readr)
+library(stringr)
+library(magrittr)
+library(dplyr)
+library(tm)
+library(rvest)
+library(ggplot2)
+library(reshape)
+library(fmsb)
+library(wordcloud)
+```
+```{r}
+install.packages("ggthemes") # Install 
+
+library(ggthemes) 
+```
+```{r}
+install.packages("formattable")
+library(formattable)
+```
+
+```{r include=FALSE}
+install.packages("reshape")
+```
+
+```{r include=FALSE}
+install.packages("fmsb")
+```
+
+```{r}
+alcazar = read_csv("/Users/lukey/Desktop/Oidd245Data/finalproject/grojData/grojfirstclean.csv")
+alcazarGOTONLY = read_csv("/Users/lukey/Desktop/Oidd245Data/finalproject/grojData/grojgameclean.csv")
+
+```
+
+
+```{r}
+plotVals = alcazar  %>% count(date) 
+gamePlotVals = alcazarGOTONLY %>% count(date)
+
+```
+
+```{r}
+#alcazar = alcazar %>% select(reviewText, location, date, reviewTitle, rating, reviewsWritten, numberThanks)
+```
+
+```{r}
+p <- ggplot(data = plotVals, aes(x = date, y = n)) + 
+     geom_line(color = "#00AFBB", size = 1)
+p
+```
+
+```{r}
+d <- ggplot(data = gamePlotVals, aes(x = date, y = n)) + 
+     geom_line(color = "#00AFBB", size = 1)
+d
+```
+```{r}
+names(gamePlotVals) <- c("date", "Game_of_Thrones")
+names(plotVals) <- c("date", "Total_Reviews")
+df = as.data.frame(merge(x = plotVals, y = gamePlotVals, by = "date", all = TRUE))
+df <- df %>% mutate(Game_of_Thrones = ifelse(is.na(Game_of_Thrones), 0, Game_of_Thrones))
+
+```
+
+```{r}
+pl = ggplot() + 
+  geom_line(data = df, aes(x = date, y = Total_Reviews), color = "blue") +
+  geom_line(data = df, aes(x = date, y = Game_of_Thrones), color = "red") +
+  xlab('Date of Review') +
+  ylab('Number of Reviews')
+pl
+```
+```{r}
+dfMelted <- reshape2::melt(df, id.var='date')
+#dt3 = as.POSIXct(as.Date("05/01/2012","%m/%d/%Y"))
+dt = as.POSIXct(as.Date("05/01/2011","%m/%d/%Y"))
+#dt2 = as.POSIXct(as.Date("07/01/2017","%m/%d/%Y"))
+g = ggplot(dfMelted, aes(x=date, y=value, col=variable)) + geom_line(size=1.3) + geom_vline(xintercept=as.numeric(dt), linetype=4, size = 1,3)
+g  = g + labs(title = "Dark Hedges, N. Ireland") 
+#g + theme_economist() + theme(legend.title=element_blank())
+g + theme_wsj()+ scale_colour_wsj("colors6") + theme(legend.title=element_blank()) 
+
+```
+Look at average rating across each and look at average number of helpful votes
+```{r}
+mean_total_rating = alcazar %>% summarise(mean(rating))
+noNullAlcazar = alcazar %>% mutate(numberThanks= ifelse(numberThanks == "null", 0, numberThanks))
+mean_helpful = noNullAlcazar %>% summarise(mean(numberThanks))
+mean_total_reviews_written = alcazar %>% summarise(mean(reviewsWritten))
+
+mean_game_rating = alcazarGOTONLY %>% summarise(mean(rating))
+noNullAlcazarGame = alcazarGOTONLY %>% mutate(numberThanks= ifelse(numberThanks == "null", 0, numberThanks))
+mean_game_helpful = noNullAlcazarGame %>% summarise(mean(numberThanks))
+mean_Game_reviews_written = alcazarGOTONLY %>% summarise(mean(reviewsWritten))
+
+print(mean_total_rating)
+print(mean_helpful)
+print(mean_total_reviews_written)
+print(mean_game_rating)
+print(mean_game_helpful)
+print(mean_Game_reviews_written)
+
+```
+Make new Radar Chart showing difference between the two
+```{r}
+avg_helpful_votes = as.numeric(c(mean_helpful,mean_game_helpful))
+avg_reviews_written = as.numeric(c(mean_total_reviews_written, mean_Game_reviews_written))
+avg_rating = as.numeric(c(mean_total_rating, mean_game_rating))
+alcDf = as.data.frame(cbind(avg_helpful_votes,avg_rating,avg_reviews_written))
+rownames(alcDf) = c("All Reviews", "Game Of Thrones")
+colnames(alcDf) = c("Average Helpful Votes", "Average Rating", "Average Reviews Written by User")
+newalcDf = rbind(c(110,5.0,210), c(0,0.0,0), alcDf)
+radarchart(newalcDf)
+
+```
+```{r}
+formattable(alcDf, align =c("c","c","c"))
+```
+
+make word cloud for each
+```{r}
+corp.original <- VCorpus(VectorSource(alcazarGOTONLY$reviewText))
+corp = tm_map(corp.original, content_transformer(removeWords), stopwords("SMART") ,lazy=TRUE)
+corp = tm_map(corp, content_transformer(removeWords), stopwords("english") ,lazy=TRUE)
+corp = tm_map(corp, removePunctuation) 
+corp = tm_map(corp, removeNumbers) 
+corp = tm_map(corp, content_transformer(tolower) ,lazy=TRUE)
+corp = tm_map(corp, stripWhitespace)
+corp = tm_map(corp, content_transformer(removeWords), stopwords("SMART") ,lazy=TRUE)
+corp = tm_map(corp, content_transformer(removeWords), stopwords("english") ,lazy=TRUE)
+```
+
+make dtf
+```{r}
+dtm <- TermDocumentMatrix(corp)
+m <- as.matrix(dtm)
+v <- sort(rowSums(m),decreasing=TRUE)
+d <- data.frame(word = names(v),freq=v)
+head(d, 10)
+```
+
+```{r}
+set.seed(1234)
+wordcloud(words = d$word, freq = d$freq, min.freq = 1,
+          max.words=200, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Spectral"))
+```
+
+
+```{r}
+histor = read_csv("/Users/lukey/Desktop/Oidd245Data/finalproject/allData/interest.csv")
+names(histor) <- c("date", "Percent_Interest")
+dt = as.POSIXct(as.Date("04/01/2011","%m/%d/%Y"))
+g1 = ggplot(histor, aes(x=date, y=Percent_Interest)) + geom_line(size=1.3) + geom_vline(xintercept=as.numeric(dt), linetype=4, size = 1,3)
+g1  = g1 + labs(title = "Game of Thrones Interest") 
+#g + theme_economist() + theme(legend.title=element_blank())
+g1+ theme_wsj()+ scale_colour_wsj("colors6") + theme(legend.title=element_blank()) 
+
+```
+
+
+
+
